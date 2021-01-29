@@ -1,106 +1,198 @@
-#### CFPB Open Source Project Template Instructions
+# CFPB Docker Monitor
 
-1. Create a new project.
-2. [Copy these files into the new project](#installation)
-3. Update the README, replacing the contents below as prescribed.
-4. Add any libraries, assets, or hard dependencies whose source code will be included
-   in the project's repository to the _Exceptions_ section in the [TERMS](TERMS.md).
-  - If no exceptions are needed, remove that section from TERMS.
-5. If working with an existing code base, answer the questions on the [open source checklist](opensource-checklist.md)
-6. Delete these instructions and everything up to the _Project Title_ from the README.
-7. Write some great software and tell people about it.
+The CFPB Docker Monitor is a command-line tool intended to be used to 
+enforce a Docker policy that is defined by a combination of checks that 
+pass or fail. 
 
-> Keep the README fresh! It's the first thing people see and will make the initial impression.
-
-## Installation
-
-To install all of the template files, run the following script from the root of your project's directory:
-
-```
-bash -c "$(curl -s https://raw.githubusercontent.com/CFPB/development/master/open-source-template.sh)"
-```
-
-----
-
-# Project Title
-
-**Description**:  Put a meaningful, short, plain-language description of what
-this project is trying to accomplish and why it matters.
-Describe the problem(s) this project solves.
-Describe how this software can improve the lives of its audience.
-
-Other things to include:
-
-  - **Technology stack**: Indicate the technological nature of the software, including primary programming language(s) and whether the software is intended as standalone or as a module in a framework or other ecosystem.
-  - **Status**:  Alpha, Beta, 1.1, etc. It's OK to write a sentence, too. The goal is to let interested people know where this project is at. This is also a good place to link to the [CHANGELOG](CHANGELOG.md).
-  - **Links to production or demo instances**
-  - Describe what sets this apart from related-projects. Linking to another doc or page is OK if this can't be expressed in a sentence or two.
-
-
-**Screenshot**: If the software has visual components, place a screenshot after the description; e.g.,
-
-![](https://raw.githubusercontent.com/cfpb/open-source-project-template/master/screenshot.png)
-
-
-## Dependencies
-
-Describe any dependencies that must be installed for this software to work.
-This includes programming languages, databases or other storage mechanisms, build tools, frameworks, and so forth.
-If specific versions of other software are required, or known not to work, call that out.
+- [Installation](#installation)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Built-in checks](#built-in-checks)
+- [Getting help](#getting-help)
+- [Getting involved](#getting-involved)
+- [Licensing](#licensing)
 
 ## Installation
 
-Detailed instructions on how to install, configure, and get the project running.
-This should be frequently tested to ensure reliability. Alternatively, link to
-a separate [INSTALL](INSTALL.md) document.
+The CFPB Docker Monitor can be installed with [pip](https://pip.pypa.io/en/stable/):
 
-## Configuration
-
-If the software is configurable, describe it in detail, either here or in other documentation to which you link.
+```
+pip install git+https://github.com/cfpb/docker-monitor
+```
 
 ## Usage
 
-Show users how to use the software.
-Be specific.
-Use appropriate formatting when showing code snippets.
+Given a [config file](#configuration), the CFPB Docker Monitor can be run with:
 
-## How to test the software
+```shell
+docker_monitor -f /path/to/my_config.ini
+```
 
-If the software includes automated tests, detail how to run those tests.
+It is intended to run automatically, periodically.
 
-## Known issues
+## Configuration
 
-Document any known significant shortcomings with the software.
+The CFPB Docker Monitor requires a config file that defines general policy 
+configuration, logging, and the checks to be run and their configuration.
+the checks to be run. 
+
+```ini
+[policy]
+always_allow =
+
+[logging]
+log_file = /tmp/docker_monitor.log
+
+[docker_monitor.checks.ActiveBuildCheck]
+
+[docker_monitor.checks.RunningAsRootCheck]
+allow_root = off
+
+[docker_monitor.checks.RunningAsRootCheck]
+allow_root = off
+
+[docker_monitor.checks.PrismaScanCheck]
+twistcli_path = 
+token = 
+url = 
+```
+
+### `policy` section
+
+```ini
+[policy]
+# Image IDs listed here are always allowed, and the checks defined below will 
+# not run on them.
+always_allow =
+```
+
+- `always_allow` is a comma-separated list of Docker image ids that will 
+  always be allowed. Checks will not run against these images, they will 
+  always pass.
+
+### `logging` section
+
+```ini
+[logging]
+# The file to log output from each scan to
+log_file = /tmp/docker_monitor.log
+# The log level to use when writing logs out
+level = 
+```
+
+- `log_file` is the file path to which output from each scan will be logged.
+- `level` is the log level that will be writen to the file in `log_file`.
+
+### Checks
+
+Checks to be run as defined as sections in the config file, with the dotted 
+Python module path to the check as the section name. For example:
+
+```ini
+[docker_monitor.checks.RunningAsRootCheck]
+allow_root = off
+```
+
+This will cause the `RunningAsRootCheck` to be loaded from the 
+`docker_monitor.checks` Python module, and run on Docker containers with 
+the configuration `allow_root = off`.
+
+Checks that do not have any configuration can be loaded by simply adding a 
+section with their dotted Python path and no additional settings within 
+the section. For example:
+
+```ini
+[docker_monitor.checks.ActiveBuildCheck]
+```
+
+Checks are run in the order in which they're defined in the config file. If 
+you want a check to run before another check, define it before that check.
+
+
+## Built-in checks
+
+The CFPB Docker Monitor includes several built-in checks that can be run:
+
+### `docker_monitor.checks.ActiveBuildCheck`
+
+This will check to see if the Docker container is actively building an image.
+
+If it is, this check will pass fast, meaning any checks defined after it will  
+not be run. This check is intended to exempt Docker containers that are 
+building new images from checks that are defined after it.
+
+```ini
+[docker_monitor.checks.ActiveBuildCheck]
+```
+
+### `docker_monitor.checks.ActiveBuildCheck`
+
+This will check to see if the Docker container is set to run as root by 
+default. 
+
+```ini
+[docker_monitor.checks.RunningAsRootCheck]
+allow_root = off
+```
+
+### `docker_monitor.checks.PrismaScanCheck`
+
+This will check to see if the image a Docker container is running passes a 
+Prisma compliance threshold when scanned. 
+
+This check uses the twistcli command-line tool, combined with the token and 
+URL, to submit the image for scanning and wait for results. 
+
+If the results report "Compliance threshold check results: PASS", then the 
+check passes.
+
+Any complaince thresholds must be configured in Prisma Cloud.
+
+```ini
+[docker_monitor.checks.PrismaScanCheck]
+twistcli_path = 
+token = 
+url = 
+```
+
+## Defining new checks
+
+Checks are classes that inherit from `docker_monitor.policy.PolicyCheck`
+whose instances are callable with a `__call__` method that takes a [Docker 
+container](https://docker-py.readthedocs.io/en/stable/containers.html) as the 
+argument and determines whether the container's image passes the check.
+
+Checks can return:
+
+- `self.PASS`
+- `self.PASS_FAST`
+- `self.FAIL`
+
+```python
+from docker_monitor.policy import PolicyCheck
+
+
+class MyPolicyCheck(PolicyCheck):
+    description = "my custom policy check"
+
+    def __call__(self, container):
+        if self.config["pass"] == "pass":
+            return self.PASS
+        elif self.config["pass"] == "past fast":
+            return self.PASS_FAST
+        return self.FAIL
+```
+
 
 ## Getting help
 
-Instruct users how to get help with this software; this might include links to an issue tracker, wiki, mailing list, etc.
-
-**Example**
-
-If you have questions, concerns, bug reports, etc, please file an issue in this repository's Issue Tracker.
+Please add issues to the [issue tracker](https://github.com/cfpb/docker-monitor/issues).
 
 ## Getting involved
 
-This section should detail why people should get involved and describe key areas you are
-currently focusing on; e.g., trying to get feedback on features, fixing certain bugs, building
-important pieces, etc.
+General instructions on _how_ to contribute can be found in [CONTRIBUTING](CONTRIBUTING.md).
 
-General instructions on _how_ to contribute should be stated with a link to [CONTRIBUTING](CONTRIBUTING.md).
-
-
-----
-
-## Open source licensing info
+## Licensing
 1. [TERMS](TERMS.md)
 2. [LICENSE](LICENSE)
 3. [CFPB Source Code Policy](https://github.com/cfpb/source-code-policy/)
-
-
-----
-
-## Credits and references
-
-1. Projects that inspired you
-2. Related projects
-3. Books, papers, talks, or other sources that have meaningful impact or influence on this project
